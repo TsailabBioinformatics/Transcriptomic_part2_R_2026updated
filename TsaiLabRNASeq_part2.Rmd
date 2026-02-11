@@ -1,0 +1,244 @@
+---
+title: ''
+output:
+  pdf_document: default
+  word_document: default
+  html_document: default
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+if (!require("kableExtra")) {
+  install.packages("kableExtra", repos="https://cloud.r-project.org/")
+  if (!require("kableExtra")) {
+    stop("Could not install kableExtra")
+  }
+}
+
+```
+
+
+<link rel="stylesheet" href="src/w3.css">
+<!--<link rel="stylesheet" href="https://www.w3schools.com/w3css/4/w3.css">-->
+<!--Sidebar-->
+<div class="w3-sidebar w3-light-grey w3-bar-block" style="width:220px;height:100%;">
+<h2 class="w3-bar-item" style="color:#1c892d">Contents</h2>
+<a href="#overview" class="w3-bar-item w3-button">Summary</a>
+<a href="#getfpkm" class="w3-bar-item w3-button">FPKM calculation</a>
+<a href="#sampleqc" class="w3-bar-item w3-button">Sample QC</a>
+<a href="#deg" class="w3-bar-item w3-button">DEG Analysis</a>
+<a href="#go" class="w3-bar-item w3-button">GO Enrichment Analysis</a>
+
+
+</div>
+<!-- Page Content -->
+<div style="margin-left:30%">
+<div id="overview">
+# TsaiLab RNAseq Pipeline
+<br>
+Author : Liangjiao Xue,  liangjiao.xue@gmail.com  
+Copy Right: Tsai Lab UGA,   cjtsai@uga.edu  
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Liangjiao Xue,  liangjiao.xue@gmail.com  
+
+## Summary
+</div>
+------  
+This is the second part of the RNAseq pipeline. We will introduce the following analyses:
+<br>
+**FPKM calculation**: calculate FPKM values using read counts.  
+**Sample QC**: perform sample clustering and PCA to check issues like sample mislabeling.  
+**DEG Analysis**: Differential expression test using DEseq or edgeR.   
+**GO Enrichment Analysis**: GO enrichment analysis using a list of genes.   
+<br>
+The calculations are based on several annotations and design files.   
+<br>
+<br>
+Within the "data" directory, there are four files:   
+ "XXX_gene_count.tab"   : counts of reads by gene    
+ "XXX_design.txt"            : definition of the sample names, and group them into different categories.    
+ "XXX_compare.txt"         : definition of which category will be used for testing.     
+ "XXX_compare_UB.txt"  : similar to  "sut_compare.txt", but unbalanced design    
+<br>
+<br>
+Within the "db" directory, there are two files:  
+Pop_v3.0b_anno_all_edit.tab  : functional annotation of gene, gene IDs are in the first column   
+Pta717s_v1.1_gene.gtf   :     genome annotation file, same as used for Read mapping and counting.    
+<br> 
+**Copy the whole directory to your PC**. Prepare these files for your genome and experiment design.  
+To generate the "design" file:   
+1) Open "Populus_all_counts.tab" with Excel, copy the names of samples and transpose them.    
+2) Generate "design" file as the example shows.    
+3) Note: the names of the first three columns **("sample_id", "File" and "Group")** are mandatory.    
+  The "Group" gives the same names to samples of biological replicates.     
+  
+Here is the example of "compare" file.   
+
+```{r read, echo=FALSE,message=FALSE}
+
+source("src\\TsaiLabRNASeq_part2_2025ccdivide.R")
+set_variables()
+
+file_compare_full = paste("data\\",file_compare,sep="")
+fileTable <- read.table(file_compare_full, header=TRUE)
+col_name = names(fileTable)
+knitr::kable(fileTable, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+```
+The first line in this table indicates, we will the grouping information in "Sample" column of the design file, and compare "WT_DR" against "WT_WW". If these two groups are absent from that column, the code will stop.   
+You may notice that different grouping methods can be used to define the pairs for differential tests.  
+
+
+<div id="getfpkm">
+## FPKM calculation
+</div>
+------
+
+```{r fpkm_cal, echo=FALSE,include=FALSE}
+
+source("src\\TsaiLabRNASeq_part2_2025ccdivide.R")
+set_variables()
+get_fpkms()
+
+```
+
+Here will calculate number of genes in each "Group" with FPKM higher than 5. One file "fpkm_gene_num.txt" will be generated under the data directory.
+
+```{r fpkm_sum, echo=FALSE,include=FALSE}
+
+source("src\\TsaiLabRNASeq_part2_2025ccdivide.R")
+set_variables()
+
+fpkm_cut_off = 5
+get_gene_num_above_cutoff(fpkm_cut_off)
+
+
+```
+
+The numbers of genes with FPKM>= 5 in all replicates of the samples.
+```{r fpkm_show, echo=FALSE,message=FALSE}
+
+source("src\\TsaiLabRNASeq_part2_2025ccdivide.R")
+set_variables()
+
+file_gene_num = paste("data\\", "expressed_num_",file_in,sep="")
+fileTable <- read.table(file_gene_num, header=TRUE)
+col_name = names(fileTable)
+knitr::kable(fileTable, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),full_width = F, position = "left")
+
+```
+
+
+<div id="sampleqc">
+## Sample QC
+</div>
+------
+The FPKM values were used to perform PCA and Sample clustering to make sure there is no labeling issue.
+
+```{r pca_fpkm, echo=FALSE}
+
+source("src\\TsaiLabRNASeq_part2_2025ccdivide.R")
+set_variables()
+
+run_PCA_cluster()
+
+
+```
+
+
+
+<div id="deg">
+## DEG Analysis
+</div>
+------
+<div>
+The differential tests were performed using the information in two configure files, PopSA_design.txt and PopSA_compare.txt.  
+The large file with all the genes will be generated. And genes are also filtered to get numbers of DE genes. The filtering cutoffs are:qvalue_cut = 0.05;  fold_change_cut = 2; fpkm_cut = 3 . You could change these setting in the R code chunk.  
+One "GO" directory will be created to hold gene lists for GO enrichment analysis in the next step.  
+In the file names, "UP" indicates numerator > denominator, "DO" (down) indicates numerator < denominator.   
+</div>
+
+```{r deseq, echo=FALSE,include=FALSE}
+# settings 
+
+source("src\\TsaiLabRNASeq_part2_2025ccdivide.R")
+set_variables()
+
+qvalue_cut = 1
+fold_change_cut = 2
+fpkm_cut = 1
+pvalue_cut = 0.05 # P value cutoff, set as 1 to turn OFF the filtering using P valeue, 
+# if P value is not equal to 1, the screening will base on P value rather than Q value.
+
+gene_list_for_go = 1 # switch to turn:1 or off:0 of gene list generation
+
+run_DEseq_General(gene_list_for_go,qvalue_cut,fold_change_cut,fpkm_cut,pvalue_cut)
+
+```
+
+The numbers of DE genes.   
+
+```{r deg_show, echo=FALSE,message=FALSE}
+
+source("src\\TsaiLabRNASeq_part2_2025ccdivide.R")
+set_variables()
+
+file_deg_num = paste("data\\","DE_",file_in,sep="")
+fileTable <- read.table(file_deg_num, header=TRUE)
+
+col_name = names(fileTable)
+knitr::kable(fileTable, "html") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"),full_width = F, position = "left")
+
+
+
+```
+
+View "DE_Populus_all_counts.tab_Final_Out.csv" for the final output from DE analysis.
+
+```
+This file contains three domains:  
+The data in first domain are results from DE analysis. There are four columns for each comparison.
+   XXXX(logFC)	: log2 transformed fold change
+                  (logFC 1 = FC 2, and logFC 0.585 =~ FC 1.5)
+   XXXX(Pvalue)	: P value
+   XXXX(Qvalue)	: Q value
+   XXXX(FPKMcut): FPKM value cutoff to show expression levels of genes.
+                  (five ranks in total: 0,1,3,5,10 )
+
+The data in second domain are FPKM values of all samples.
+
+The data in third domain are gene annotation information.
+
+The exact numbers of columns in each domain depend on the nubmers of samples and comparisons.
+```
+
+
+<div id="go">
+## GO Enrichment Analysis
+</div>
+------
+In this section, we will run GO enrichment test using the output of DE analysis. By default, this section is switched off. Before GO enrichment test, please make sure are the files in "data//GO" directory are required. 
+
+```{r go_test, echo=FALSE,message=FALSE}
+
+perform_go = 1 # change into 1 to active this section. 
+
+source("src\\TsaiLabRNASeq_part2_2025ccdivide.R")
+set_variables()
+
+
+if (perform_go == 1){
+   data_folder = "data\\Go\\"
+   run_go_enrichment(data_folder)
+}
+
+```
+View "GO_enrichment_merge.tab" for the merge GO enrichment output file.
+
+<div>
+------
+</div>
+Tsai Lab, email cjtsai@uga.edu and liangjiao.xue@uga.edu for questions and bug reports.  
+
+
